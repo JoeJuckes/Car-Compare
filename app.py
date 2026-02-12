@@ -16,6 +16,10 @@ HTML = """
 <!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Car Compare</title>
+{% if error %}
+<p style="color:red;">⚠️ {{ error }}</p>
+{% endif %}
+
 
 <h2>🚗 Car Compare</h2>
 <form method="post">
@@ -36,19 +40,32 @@ Price: £{{ car.price }}<br>
 
 def scrape_autotrader(url):
     r = requests.get(url, headers=HEADERS, timeout=10)
+
+    if r.status_code != 200:
+        raise ValueError("Failed to fetch page")
+
     soup = BeautifulSoup(r.text, "html.parser")
 
     script = soup.find("script", type="application/ld+json")
-    data = json.loads(script.string)
+    if not script:
+        raise ValueError("AutoTrader data not found")
+
+    try:
+        data = json.loads(script.string)
+    except json.JSONDecodeError:
+        raise ValueError("Failed to parse AutoTrader data")
 
     return {
-        "make": data["brand"]["name"],
-        "model": data["model"],
-        "year": int(data["productionDate"][:4]),
-        "price": int(data["offers"]["price"]),
-        "mileage": int(data["mileageFromOdometer"]["value"]),
-        "image": data["image"][0]
+        "make": data.get("brand", {}).get("name", "Unknown"),
+        "model": data.get("model", "Unknown"),
+        "year": int(data.get("productionDate", "0")[:4] or 0),
+        "price": int(data.get("offers", {}).get("price", 0)),
+        "mileage": int(
+            data.get("mileageFromOdometer", {}).get("value", 0)
+        ),
+        "image": data.get("image", [None])[0]
     }
+
 
 def score_car(car):
     age = datetime.now().year - car["year"]
@@ -59,11 +76,21 @@ def score_car(car):
 
 @app.route("/", methods=["GET", "POST"])
 def index():
+    error = None
+
     if request.method == "POST":
-        car = scrape_autotrader(request.form["url"])
-        car["score"] = score_car(car)
-        cars.append(car)
-    return render_template_string(HTML, cars=cars)
+        try:
+            car = scrape_autotrader(request.form["url"])
+            car["score"] = score_car(car)
+            cars.append(car)
+        except Exception as e:
+            error = str(e)
+
+    return render_template_string(
+        HTML,
+        cars=cars,
+        error=error
+    )
 
 if __name__ == "__main__":
     app.run()
