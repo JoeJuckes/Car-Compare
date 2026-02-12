@@ -1,15 +1,12 @@
-from flask import Flask, request, render_template_string
+from flask import Flask, request, jsonify, render_template_string
 import requests
-from bs4 import BeautifulSoup
 import json
 from datetime import datetime
-from urllib.parse import urlparse
 
 app = Flask(__name__)
-cars = []
 
 HEADERS = {
-    "User-Agent": "Mozilla/5.0",
+    "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)",
     "Accept-Language": "en-GB,en;q=0.9"
 }
 
@@ -18,105 +15,93 @@ HTML = """
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Car Compare</title>
 
-{% if error %}
-<p style="color:red;">⚠️ {{ error }}</p>
-{% endif %}
-
 <h2>🚗 Car Compare</h2>
 
-<form method="post">
-  <input name="url"
-         placeholder="Paste full AutoTrader link (https://...)"
-         style="width:95%;padding:8px">
-  <button style="padding:8px;margin-top:8px">Add Car</button>
-</form>
+<input id="url" placeholder="Paste AutoTrader link"
+       style="width:95%;padding:10px;font-size:16px">
+<button onclick="addCar()" style="padding:10px;margin-top:10px">
+Add Car
+</button>
 
-{% for car in cars %}
-<hr>
-<img src="{{ car.image }}" width="100%">
-<b>{{ car.make }} {{ car.model }}</b><br>
-Year: {{ car.year }}<br>
-Mileage: {{ car.mileage }}<br>
-Price: £{{ car.price }}<br>
-⭐ Score: {{ car.score }}/10
-{% endfor %}
+<p id="error" style="color:red;"></p>
+
+<div id="cars"></div>
+
+<script>
+async function addCar() {
+  const url = document.getElementById("url").value.trim();
+  document.getElementById("error").textContent = "";
+
+  const res = await fetch("/fetch", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({ url })
+  });
+
+  const data = await res.json();
+
+  if (data.error) {
+    document.getElementById("error").textContent = data.error;
+    return;
+  }
+
+  document.getElementById("cars").innerHTML += `
+    <hr>
+    <img src="${data.image}" width="100%">
+    <b>${data.make} ${data.model}</b><br>
+    Year: ${data.year}<br>
+    Mileage: ${data.mileage}<br>
+    Price: £${data.price}<br>
+    ⭐ Score: ${data.score}/10
+  `;
+}
+</script>
 """
 
-def normalize_autotrader_url(url):
-    parsed = urlparse(url)
-    return f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+@app.route("/")
+def index():
+    return render_template_string(HTML)
 
-def is_autotrader_car_url(url):
-    return (
-        url.startswith("http")
-        and "autotrader.co.uk/car-details/" in url
-    )
+@app.route("/fetch", methods=["POST"])
+def fetch():
+    url = request.json.get("url", "")
 
-def scrape_autotrader(url):
-    r = requests.get(url, headers=HEADERS, timeout=10)
-    if r.status_code != 200:
-        raise ValueError("Failed to fetch AutoTrader page")
-
-    soup = BeautifulSoup(r.text, "html.parser")
-
-    next_data = soup.find("script", id="__NEXT_DATA__")
-    if not next_data:
-        raise ValueError("AutoTrader blocked this request")
-
-    data = json.loads(next_data.string)
+    if "autotrader.co.uk/car-details/" not in url:
+        return jsonify(error="Please paste a valid AutoTrader car link")
 
     try:
-        advert = (
-            data["props"]["pageProps"]["advert"]
-        )
+        r = requests.get(url, headers=HEADERS, timeout=10)
+        if r.status_code != 200:
+            return jsonify(error="AutoTrader blocked this request")
 
-        return {
-            "make": advert["vehicle"]["make"],
-            "model": advert["vehicle"]["model"],
-            "year": advert["vehicle"]["year"],
-            "price": advert["pricing"]["price"],
-            "mileage": advert["vehicle"]["odometerReading"]["value"],
-            "image": advert["media"]["images"][0]["href"]
-        }
+        html = r.text
 
-    except KeyError:
-        raise ValueError("Car data structure changed")
+        # Extract Next.js data
+        start = html.find("__NEXT_DATA__")
+        if start == -1:
+            return jsonify(error="Vehicle data not found")
 
+        json_start = html.find("{", start)
+        json_end = html.find("</script>", json_start)
 
-def score_car(car):
-    age = datetime.now().year - car["year"]
-    score = 10
-    score -= age * 0.7
-    score -= car["mileage"] / 25000
-    return round(max(0, score), 1)
+        data = json.loads(html[json_start:json_end])
 
-@app.route("/", methods=["GET", "POST"])
-def index():
-    error = None
+        car = data["props"]["pageProps"]["listing"]
 
-    if request.method == "POST":
-        try:
-            url = request.form["url"].strip()
+        score = score_car(car)
 
-            if not is_autotrader_car_url(url):
-                raise ValueError(
-                    "Please paste a valid AutoTrader car listing link"
-                )
+        return jsonify({
+            "make": car["make"],
+            "model": car["model"],
+            "year": car["year"],
+            "mileage": car["mileage"],
+            "price": car["price"],
+            "image": car["media"]["images"][0]["url"],
+            "score": score
+        })
 
-            url = normalize_autotrader_url(url)
-            car = scrape_autotrader(url)
-            car["score"] = score_car(car)
-
-            cars.append(car)
-
-        except Exception as e:
-            error = str(e)
-
-    return render_template_string(
-        HTML,
-        cars=cars,
-        error=error
-    )
+    except Exception as e:
+        return jsonify(error=str(e))
 
 if __name__ == "__main__":
     app.run()
