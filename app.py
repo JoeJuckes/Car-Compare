@@ -17,16 +17,17 @@ HTML = """
 <!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Car Compare</title>
+
 {% if error %}
 <p style="color:red;">⚠️ {{ error }}</p>
 {% endif %}
 
-
 <h2>🚗 Car Compare</h2>
+
 <form method="post">
   <input name="url"
-       placeholder="Paste full AutoTrader link (https://...)"
-       style="width:95%;padding:8px">
+         placeholder="Paste full AutoTrader link (https://...)"
+         style="width:95%;padding:8px">
   <button style="padding:8px;margin-top:8px">Add Car</button>
 </form>
 
@@ -41,40 +42,28 @@ Price: £{{ car.price }}<br>
 {% endfor %}
 """
 
-def is_valid_url(url):
-    return url.startswith("http://") or url.startswith("https://")
-
 def normalize_autotrader_url(url):
     parsed = urlparse(url)
-
-    # Only keep scheme + domain + path
-    clean_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
-
-    return clean_url
+    return f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
 
 def is_autotrader_car_url(url):
     return (
-        "autotrader.co.uk/car-details/" in url
-        and url.startswith("http")
+        url.startswith("http")
+        and "autotrader.co.uk/car-details/" in url
     )
-
 
 def scrape_autotrader(url):
     r = requests.get(url, headers=HEADERS, timeout=10)
-
     if r.status_code != 200:
-        raise ValueError("Failed to fetch page")
+        raise ValueError("Failed to fetch AutoTrader page")
 
     soup = BeautifulSoup(r.text, "html.parser")
-
     script = soup.find("script", type="application/ld+json")
+
     if not script:
         raise ValueError("AutoTrader data not found")
 
-    try:
-        data = json.loads(script.string)
-    except json.JSONDecodeError:
-        raise ValueError("Failed to parse AutoTrader data")
+    data = json.loads(script.string)
 
     return {
         "make": data.get("brand", {}).get("name", "Unknown"),
@@ -86,7 +75,6 @@ def scrape_autotrader(url):
         ),
         "image": data.get("image", [None])[0]
     }
-
 
 def score_car(car):
     age = datetime.now().year - car["year"]
@@ -104,16 +92,23 @@ def index():
             url = request.form["url"].strip()
 
             if not is_autotrader_car_url(url):
-            raise ValueError("Please paste a valid AutoTrader car listing link")
+                raise ValueError(
+                    "Please paste a valid AutoTrader car listing link"
+                )
 
             url = normalize_autotrader_url(url)
-
             car = scrape_autotrader(url)
+            car["score"] = score_car(car)
 
-            return render_template_string(
-                HTML,
-                cars=cars,
-                error=error
+            cars.append(car)
+
+        except Exception as e:
+            error = str(e)
+
+    return render_template_string(
+        HTML,
+        cars=cars,
+        error=error
     )
 
 if __name__ == "__main__":
