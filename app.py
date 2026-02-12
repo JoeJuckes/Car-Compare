@@ -58,43 +58,29 @@ def scrape_autotrader(url):
         raise ValueError("Failed to fetch AutoTrader page")
 
     soup = BeautifulSoup(r.text, "html.parser")
-    scripts = soup.find_all("script", type="application/ld+json")
 
-    vehicle_data = None
+    next_data = soup.find("script", id="__NEXT_DATA__")
+    if not next_data:
+        raise ValueError("AutoTrader blocked this request")
 
-    for script in scripts:
-        try:
-            data = json.loads(script.string)
+    data = json.loads(next_data.string)
 
-            # Sometimes it's a list of objects
-            if isinstance(data, list):
-                for item in data:
-                    if item.get("@type") == "Vehicle":
-                        vehicle_data = item
-                        break
-            else:
-                if data.get("@type") == "Vehicle":
-                    vehicle_data = data
+    try:
+        advert = (
+            data["props"]["pageProps"]["advert"]
+        )
 
-        except Exception:
-            continue
+        return {
+            "make": advert["vehicle"]["make"],
+            "model": advert["vehicle"]["model"],
+            "year": advert["vehicle"]["year"],
+            "price": advert["pricing"]["price"],
+            "mileage": advert["vehicle"]["odometerReading"]["value"],
+            "image": advert["media"]["images"][0]["href"]
+        }
 
-        if vehicle_data:
-            break
-
-    if not vehicle_data:
-        raise ValueError("AutoTrader vehicle data not found")
-
-    return {
-        "make": vehicle_data.get("brand", {}).get("name", "Unknown"),
-        "model": vehicle_data.get("model", "Unknown"),
-        "year": int(vehicle_data.get("productionDate", "0")[:4] or 0),
-        "price": int(vehicle_data.get("offers", {}).get("price", 0)),
-        "mileage": int(
-            vehicle_data.get("mileageFromOdometer", {}).get("value", 0)
-        ),
-        "image": vehicle_data.get("image", [None])[0]
-    }
+    except KeyError:
+        raise ValueError("Car data structure changed")
 
 
 def score_car(car):
