@@ -15,54 +15,54 @@ HTML = """
 <p id="error" style="color:red;"></p>
 <div id="cars"></div>
 
-<script>
+<script type="text/javascript">
 async function addCar() {
-  const url = document.getElementById("url").value.trim();
-  document.getElementById("error").textContent = "";
+    const url = document.getElementById("url").value.trim();
+    document.getElementById("error").textContent = "";
 
-  if (!url.includes("autotrader.co.uk/car-details/")) {
-    document.getElementById("error").textContent = "Please paste a valid AutoTrader car link.";
-    return;
-  }
+    if (!url.includes("autotrader.co.uk/car-details/")) {
+        document.getElementById("error").textContent = "Please paste a valid AutoTrader car link.";
+        return;
+    }
 
-  try {
-    // Fetch the page directly in the browser
-    const res = await fetch(url);
-    const html = await res.text();
+    try {
+        // Fetch the page in the user's browser
+        const res = await fetch(url);
+        const html = await res.text();
 
-    // Extract the __NEXT_DATA__ JSON embedded by AutoTrader
-    const start = html.indexOf('__NEXT_DATA__');
-    if (start === -1) throw "Vehicle data not found";
+        // Extract the __NEXT_DATA__ JSON embedded in AutoTrader pages
+        const start = html.indexOf('__NEXT_DATA__');
+        if (start === -1) throw "Vehicle data not found";
 
-    const jsonStart = html.indexOf('{', start);
-    const jsonEnd = html.indexOf('</script>', jsonStart);
-    const data = JSON.parse(html.slice(jsonStart, jsonEnd));
+        const jsonStart = html.indexOf('{', start);
+        const jsonEnd = html.indexOf('</script>', jsonStart);
+        const data = JSON.parse(html.slice(jsonStart, jsonEnd));
 
-    const car = data.props.pageProps.listing;
+        const car = data.props.pageProps.listing;
 
-    // Calculate score
-    const age = new Date().getFullYear() - car.year;
-    const score = Math.max(0, (10 - age * 0.6 - car.mileage / 30000)).toFixed(1);
+        // Calculate score
+        const age = new Date().getFullYear() - car.year;
+        const score = Math.max(0, (10 - age * 0.6 - car.mileage / 30000)).toFixed(1);
 
-    // Render car details
-    document.getElementById("cars").innerHTML += `
-      <hr>
-      <img src="${car.media.images[0].url}" width="100%">
-      <b>${car.make} ${car.model}</b><br>
-      Year: ${car.year}<br>
-      Mileage: ${car.mileage.toLocaleString()}<br>
-      Price: £${car.price.toLocaleString()}<br>
-      ⭐ Score: ${score}/10
-    `;
+        // Render car details
+        document.getElementById("cars").innerHTML += `
+            <hr>
+            <img src="${car.media.images[0].url}" width="100%">
+            <b>${car.make} ${car.model}</b><br>
+            Year: ${car.year}<br>
+            Mileage: ${car.mileage.toLocaleString()}<br>
+            Price: £${car.price.toLocaleString()}<br>
+            ⭐ Score: ${score}/10
+        `;
 
-    // Clear input
-    document.getElementById("url").value = "";
+        // Clear input field
+        document.getElementById("url").value = "";
 
-  } catch(e) {
-    console.error(e);
-    document.getElementById("error").textContent = 
-      "Failed to fetch car data. Open the listing in Safari and try again.";
-  }
+    } catch (e) {
+        console.error(e);
+        document.getElementById("error").textContent =
+            "Failed to fetch car data. Open the listing in Safari and try again.";
+    }
 }
 </script>
 """
@@ -70,7 +70,6 @@ async function addCar() {
 @app.route("/")
 def index():
     return render_template_string(HTML)
-
 
 if __name__ == "__main__":
     app.run(debug=True)
