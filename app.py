@@ -3,6 +3,7 @@ import requests
 from bs4 import BeautifulSoup
 import json
 from datetime import datetime
+from urllib.parse import urlparse
 
 app = Flask(__name__)
 cars = []
@@ -23,7 +24,9 @@ HTML = """
 
 <h2>🚗 Car Compare</h2>
 <form method="post">
-  <input name="url" placeholder="Paste AutoTrader link" style="width:95%;padding:8px">
+  <input name="url"
+       placeholder="Paste full AutoTrader link (https://...)"
+       style="width:95%;padding:8px">
   <button style="padding:8px;margin-top:8px">Add Car</button>
 </form>
 
@@ -37,6 +40,24 @@ Price: £{{ car.price }}<br>
 ⭐ Score: {{ car.score }}/10
 {% endfor %}
 """
+
+def is_valid_url(url):
+    return url.startswith("http://") or url.startswith("https://")
+
+def normalize_autotrader_url(url):
+    parsed = urlparse(url)
+
+    # Only keep scheme + domain + path
+    clean_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+
+    return clean_url
+
+def is_autotrader_car_url(url):
+    return (
+        "autotrader.co.uk/car-details/" in url
+        and url.startswith("http")
+    )
+
 
 def scrape_autotrader(url):
     r = requests.get(url, headers=HEADERS, timeout=10)
@@ -80,16 +101,19 @@ def index():
 
     if request.method == "POST":
         try:
-            car = scrape_autotrader(request.form["url"])
-            car["score"] = score_car(car)
-            cars.append(car)
-        except Exception as e:
-            error = str(e)
+            url = request.form["url"].strip()
 
-    return render_template_string(
-        HTML,
-        cars=cars,
-        error=error
+            if not is_autotrader_car_url(url):
+            raise ValueError("Please paste a valid AutoTrader car listing link")
+
+            url = normalize_autotrader_url(url)
+
+            car = scrape_autotrader(url)
+
+            return render_template_string(
+                HTML,
+                cars=cars,
+                error=error
     )
 
 if __name__ == "__main__":
