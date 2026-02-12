@@ -58,23 +58,44 @@ def scrape_autotrader(url):
         raise ValueError("Failed to fetch AutoTrader page")
 
     soup = BeautifulSoup(r.text, "html.parser")
-    script = soup.find("script", type="application/ld+json")
+    scripts = soup.find_all("script", type="application/ld+json")
 
-    if not script:
-        raise ValueError("AutoTrader data not found")
+    vehicle_data = None
 
-    data = json.loads(script.string)
+    for script in scripts:
+        try:
+            data = json.loads(script.string)
+
+            # Sometimes it's a list of objects
+            if isinstance(data, list):
+                for item in data:
+                    if item.get("@type") == "Vehicle":
+                        vehicle_data = item
+                        break
+            else:
+                if data.get("@type") == "Vehicle":
+                    vehicle_data = data
+
+        except Exception:
+            continue
+
+        if vehicle_data:
+            break
+
+    if not vehicle_data:
+        raise ValueError("AutoTrader vehicle data not found")
 
     return {
-        "make": data.get("brand", {}).get("name", "Unknown"),
-        "model": data.get("model", "Unknown"),
-        "year": int(data.get("productionDate", "0")[:4] or 0),
-        "price": int(data.get("offers", {}).get("price", 0)),
+        "make": vehicle_data.get("brand", {}).get("name", "Unknown"),
+        "model": vehicle_data.get("model", "Unknown"),
+        "year": int(vehicle_data.get("productionDate", "0")[:4] or 0),
+        "price": int(vehicle_data.get("offers", {}).get("price", 0)),
         "mileage": int(
-            data.get("mileageFromOdometer", {}).get("value", 0)
+            vehicle_data.get("mileageFromOdometer", {}).get("value", 0)
         ),
-        "image": data.get("image", [None])[0]
+        "image": vehicle_data.get("image", [None])[0]
     }
+
 
 def score_car(car):
     age = datetime.now().year - car["year"]
